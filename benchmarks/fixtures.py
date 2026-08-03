@@ -172,6 +172,18 @@ FIXTURES = {
         "Can you give me a one minute timer for the tea?",
         ["timer"],
     ),
+    # Practice-scene fixtures. An in-scene reply the café topic must be
+    # able to pick up on…
+    "topic_reply_coffee": (
+        "A large flat white, please. Do you have oat milk?",
+        ["flat", "milk"],
+    ),
+    # …and a learner error the coach layer should recast rather than
+    # name: "go/buy" for "went/bought", the commonest past-tense slip.
+    "learner_error": (
+        "Yesterday I go to the market and buy two fish.",
+        ["market", "fish"],
+    ),
 }
 
 # Synthesis kwargs (see _synthesize) for base fixtures that need them.

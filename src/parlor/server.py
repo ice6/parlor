@@ -39,7 +39,7 @@ DISCONNECT_ERRORS = (WebSocketDisconnect, ClientDisconnected)
 from dotenv import load_dotenv
 load_dotenv()  # before importing llama — it reads its config at import time
 
-from parlor import actions, llama, reasoner, tts
+from parlor import actions, coach, llama, reasoner, topics, tts
 from parlor.modes import MODES
 from parlor.pipeline import (estimate_tokens, pad_tail_silence, prime_cache,
                              release_client, run_turn, send_json, text_part,
@@ -89,6 +89,76 @@ RESEARCH_NOTE = (
     "and you can share it then. Everything else — greetings, chat, "
     "general knowledge, facts that don't change — answer yourself, "
     "directly and completely."
+)
+
+# The scene, appended when a practice topic is picked (topics.py). Present
+# tense and second person so the model PLAYS the part rather than narrating
+# it — "You play the barista" produces lines, "Describe a scene where…"
+# produces prose. The no-narration clause is load-bearing for a SPOKEN
+# product: without it the model emits "*wipes the counter*" and TTS reads
+# the asterisks aloud. The last sentence exists because a scene and
+# CAPABILITY_NOTE otherwise collide — mid-roleplay the model refuses a
+# timer, in character, as a barista who doesn't own a clock.
+SCENARIO_NOTE = (
+    " Right now you are role-playing a scene with the user so they can "
+    "practise speaking English. {scene} You play {role}; they play "
+    "{user_role}. Stay in the scene: speak only your own lines, no "
+    "narration, no stage directions, no asterisks, no describing what you "
+    "are doing. You are still yourself underneath — if they ask for a "
+    "timer, for translation, or for something looked up, step out of the "
+    "scene, handle it in one sentence, and step straight back in."
+)
+
+# The coaching layer (coach.py). Corrections are RECAST, never listed: a
+# list of errors is unspeakable, and reading a mistake back verbatim before
+# fixing it makes a learner defensive and quieter — the opposite of the
+# point. Three clauses here were each written against an observed failure:
+#   · "work the correct wording into your own next sentence" replaced a
+#     milder "say it back the natural way", which the model satisfied by
+#     saying nothing corrective at all ("That sounds like a nice trip").
+#   · the ONE-question rule is what makes a session feel like a
+#     conversation instead of an interview — without it the model stacks
+#     two or three per turn and the learner answers only the last.
+#   · "never phrase the correction as a question" is load-bearing FOR that
+#     rule: left out, the recast comes back as a confirmation question
+#     ("You went to the market yesterday?") and the turn has two.
+# The length budget stays INSIDE RESPOND_PROMPT's "1-4 short sentences" on
+# purpose, so the two instructions can never contradict. The closing
+# sentence is a guard: translate/listen replace the turn instruction
+# wholesale, and coaching wording must not leak into a rendering.
+COACH_NOTE = (
+    " The user is practising spoken English at {level} level. {register} "
+    "Keep each turn to {sentences}. When they say something a listener "
+    "would genuinely misunderstand, never announce the mistake — instead "
+    "work the correct wording into your own next sentence as a plain "
+    "statement, as if that is simply how you'd say it, and carry on. Let "
+    "small slips go. Your turn contains exactly ONE question mark, on the "
+    "last sentence: never phrase the correction as a question, however "
+    "natural that feels. These are conversation instructions: if a turn's "
+    "own instruction asks you to translate or to only transcribe, that "
+    "instruction wins."
+)
+
+# The scene's first line, spoken the moment a topic is picked. "System note
+# (not user audio)" leads it for the same reason as DELIVER_PROMPT: a
+# text-only turn reads to the model as its own reply playing back, and it
+# answers the anti-echo rule instead of the prompt. "they can already see
+# it" stops the model re-describing the scene the user just read off the
+# card before saying anything in character.
+TOPIC_OPENING_PROMPT = (
+    "System note (not user audio): the scene starts now. Say the very "
+    "first line as {role}, in character — one or two short sentences that "
+    "open the situation naturally and end with a question they can answer "
+    "out loud. Don't greet them as an AI, don't explain the exercise, "
+    "don't set the scene: they can already see it."
+)
+
+# The same turn for the no-scene card: still a spoken opening, because a
+# session that starts in silence makes the user wonder if the mic works.
+FREEFORM_OPENING_PROMPT = (
+    "System note (not user audio): the user just opened a session to "
+    "practise speaking English, with no particular scene. Greet them in "
+    "one short sentence and ask one easy opening question about their day."
 )
 
 # The per-utterance instruction in translate mode. Exit commands are not
@@ -207,6 +277,20 @@ RESPOND_PROMPT = (
 # so benchmarks measure the production wording, never a retyped copy.
 CAMERA_CLAUSE = " Mention what you see on their camera if relevant."
 
+# The one-question rule rides the TURN as well as the system prompt, and
+# it has to. COACH_NOTE alone loses to a scene that naturally chains
+# questions: at temperature 0 the café barista deterministically answered
+# "Yes, we have oat milk. Would you like a large flat white with oat milk?
+# Do you want anything else with your coffee?" — three sentences, two
+# questions, exactly the interview feel the rule exists to prevent. Same
+# reasoning the action head was built on (actions.py): a system-prompt
+# clause changes no per-turn behavior and never has to fight for
+# attention, which is a virtue right up until you need it to win. Kept to
+# one sentence, and never appended to a translate/listen turn, whose
+# instruction replaces the respond prompt wholesale.
+COACH_CLAUSE = (" Your reply contains exactly one question mark, in its "
+                "final sentence.")
+
 # Spoken when a turn yields no reply at all (models of every size
 # occasionally emit only the transcript line) — silence would leave the
 # user hanging, and a stored transcript-only reply teaches the model to
@@ -313,10 +397,51 @@ app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "web" / "static"), name="static")
 
 
+# Pinned CDN versions for the VRM avatar (index.html's import map). Bumping
+# one is a one-line diff here, not a hunt through the markup.
+THREE_VERSION = "0.180.0"
+THREE_VRM_VERSION = "3.4.4"
+
+# vrm — the 3D character; canvas — a dependency-free 2D face (also the
+# automatic fallback when no .vrm is present); none — no avatar at all,
+# which is the pre-avatar layout one env var away.
+AVATAR_BACKEND = os.environ.get("AVATAR_BACKEND", "vrm")
+AVATAR_VRM_URL = os.environ.get("AVATAR_VRM_URL", "/static/avatar/model.vrm")
+
+
 @app.get("/")
 async def root():
     html = (Path(__file__).parent / "web" / "index.html").read_text()
-    return HTMLResponse(content=html.replace("{{model}}", llama.model_label()))
+    for key, value in {"model": llama.model_label(),
+                       "three": THREE_VERSION,
+                       "three_vrm": THREE_VRM_VERSION,
+                       "avatar_backend": AVATAR_BACKEND,
+                       "avatar_vrm": AVATAR_VRM_URL}.items():
+        html = html.replace("{{" + key + "}}", value)
+    return HTMLResponse(content=html)
+
+
+def build_system(clock: str, delegation: bool, topic: topics.Topic | None,
+                 level: coach.Level | None) -> str:
+    """The per-connection system message. Stable clauses first, the ones a
+    topic or level change rewrites LAST: llama-server's prefix cache is a
+    longest-common-prefix match, so keeping the variable text at the tail
+    costs nothing and saves the whole prefix in the case that matters —
+    picking a scene before the first turn, when history is just this. Every
+    clause carries its own leading space, so "".join stays right."""
+    parts = [SYSTEM_PROMPT, SESSION_CLOCK.format(clock=clock), CAPABILITY_NOTE]
+    if delegation:
+        parts.append(RESEARCH_NOTE)
+    # FREEFORM has an empty scene: it must add zero tokens, not an empty
+    # clause the model then tries to obey.
+    if topic and topic.scene:
+        parts.append(SCENARIO_NOTE.format(scene=topic.scene, role=topic.role,
+                                          user_role=topic.user_role))
+    if level:
+        parts.append(COACH_NOTE.format(level=level.label,
+                                       register=level.register,
+                                       sentences=level.sentences))
+    return "".join(parts)
 
 
 def turn_instruction(msg: dict, has_image: bool, has_audio: bool) -> str:
@@ -335,10 +460,25 @@ async def websocket_endpoint(ws: WebSocket):
 
     delegation = reasoner.enabled()
     clock = time.strftime("%A at %I:%M %p").replace(" 0", " ")
-    system = (SYSTEM_PROMPT + SESSION_CLOCK.format(clock=clock)
-              + CAPABILITY_NOTE + (RESEARCH_NOTE if delegation else ""))
-    history: list = [{"role": "system", "content": system}]
+    topic: topics.Topic | None = None
+    level = coach.default_level()
+    history: list = [{"role": "system",
+                      "content": build_system(clock, delegation, topic, level)}]
     mode = MODES["conversation"]
+
+    # The picker's whole catalogue, up front: the client shows it before it
+    # starts listening, so it must not have to ask for it. Safe to add to
+    # the wire — every existing consumer (tests/util.py, benchmarks) skips
+    # frame types it doesn't recognise.
+    await send_json(ws, {
+        "type": "session_ready",
+        "categories": topics.CATEGORIES,
+        "topics": [topics.as_card(t) for t in topics.catalogue()],
+        "levels": [{"name": l.name, "label": l.label}
+                   for l in coach.LEVELS.values()],
+        "topic": None,
+        "level": level.name if level else None,
+    })
 
     interrupted = asyncio.Event()
     active = {"stream": None}
@@ -637,6 +777,98 @@ async def websocket_endpoint(ws: WebSocket):
                 await switch_mode(str(msg.get("mode", "")))
                 continue
 
+            # Practice scenes, difficulty, and scene generation are handled
+            # HERE rather than on an HTTP endpoint on purpose: this loop is
+            # already the thing that guarantees no second request lands on
+            # llama-server while a turn is streaming. A set_topic sent
+            # mid-reply simply waits its turn in msg_queue — the same
+            # discipline set_mode relies on. A client that wants it to land
+            # immediately sends {"type": "interrupt"} first.
+            if msg.get("type") == "set_topic":
+                picked = topics.get(str(msg.get("id", "")))
+                if picked is None:
+                    print(f"Ignoring unknown topic {msg.get('id')!r}")
+                    continue
+                topic = picked
+                # A new scene is a new conversation: carrying the café's
+                # dialogue into a restaurant makes the model reference a
+                # barista who no longer exists. The reset is also free —
+                # rewriting history[0] invalidates the prefix cache for
+                # everything behind it anyway, so keeping the old turns
+                # would buy a full re-prefill and nothing else.
+                history = [{"role": "system",
+                            "content": build_system(clock, delegation, topic, level)}]
+                prompt_tokens["last"] = 0
+                frame_image = None
+                speech_chunks = []
+                held_audio = []
+                interrupted.clear()
+                playing_since["t"] = 0.0
+                print(f"Topic → {topic.id} (history reset)")
+                await send_json(ws, {"type": "topic_changed",
+                                     "topic": topics.as_card(topic),
+                                     "level": level.name if level else None})
+                # speak_opening=False is the reconnect path: the client
+                # re-applies the scene after every dropped socket, and
+                # re-greeting on each network blip would be maddening.
+                if msg.get("speak_opening", True):
+                    prompt = (FREEFORM_OPENING_PROMPT if topic is topics.FREEFORM
+                              else TOPIC_OPENING_PROMPT.format(role=topic.role))
+                    try:
+                        await proactive_turn(prompt, topic.opening)
+                    except DISCONNECT_ERRORS:
+                        raise
+                    except Exception:
+                        traceback.print_exc()  # a lost opening ≠ a lost session
+                        await release_client(ws)
+                last_activity["t"] = time.time()
+                drain_ready()
+                continue
+
+            if msg.get("type") == "set_level":
+                level = coach.LEVELS.get(str(msg.get("level", "")))
+                # Rewritten in place, KEEPING the conversation: changing
+                # difficulty is not changing the scene. The cost is one full
+                # re-prefill on the next turn (the system message is the
+                # prefix of everything) — the honest price of a rare,
+                # deliberate click, and cheaper than losing the dialogue.
+                history[0] = {"role": "system",
+                              "content": build_system(clock, delegation, topic, level)}
+                prompt_tokens["last"] = 0
+                print(f"Coach level → {level.name if level else 'off'}")
+                await send_json(ws, {"type": "level_changed",
+                                     "level": level.name if level else None})
+                continue
+
+            if msg.get("type") == "generate_topics":
+                category = str(msg.get("category", "")) or "daily"
+                # Generation runs on the SAME single llama-server slot as
+                # speech (-np 1), so while it can never overlap a turn, it
+                # does evict the conversation's cached prefix — the next
+                # turn would re-prefill the whole history plus every stored
+                # audio clip. Refused once a conversation exists: at session
+                # start history is just [system] and there is nothing to
+                # lose, which is the only moment the client offers it.
+                if len(history) > 1 and not msg.get("force"):
+                    print("Topic generation skipped (conversation in progress)")
+                    await send_json(ws, {"type": "topics_generated",
+                                         "category": category, "topics": []})
+                    continue
+                avoid = [t.title for t in topics.catalogue()
+                         if t.category == category]
+                try:
+                    fresh = await asyncio.get_event_loop().run_in_executor(
+                        None, topics.generate, category,
+                        int(msg.get("n", 3)), avoid)
+                except Exception as e:
+                    print(f"Topic generation failed: {e}")
+                    fresh = []
+                topics.remember(fresh)
+                await send_json(ws, {"type": "topics_generated",
+                                     "category": category,
+                                     "topics": [topics.as_card(t) for t in fresh]})
+                continue
+
             if msg.get("type") == "delegation_done":
                 if not mode.allows_delegation:
                     # Parked until the user exits translation/listening —
@@ -783,10 +1015,18 @@ async def websocket_endpoint(ws: WebSocket):
                     # Addressed to the assistant (an exit command): answer
                     # it as a normal conversation turn, not as content.
                     instruction = RESPOND_PROMPT.format(camera="")
+                    conversational = True
                 elif mode.name in MODE_PROMPTS and has_audio:
                     instruction = MODE_PROMPTS[mode.name]
+                    conversational = False
                 else:
                     instruction = turn_instruction(msg, bool(image), has_audio)
+                    conversational = True
+                # See COACH_CLAUSE: the system prompt's one-question rule
+                # loses to a scene that naturally chains questions, so the
+                # turn carries it too — on conversational turns only.
+                if conversational and level:
+                    instruction += COACH_CLAUSE
                 # Elapsed quiet, and whether a silent turn gets a spoken
                 # line, are per-mode policy — see modes.py for the whys.
                 gap = time.time() - last_activity["t"]

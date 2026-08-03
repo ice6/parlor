@@ -146,7 +146,12 @@ def server(tmp_path_factory, reasoner_mock) -> Server:
            # Low enough for test_elapsed to trigger with a short sleep, high
            # enough that ordinary inter-turn gaps (delegation retries idle up
            # to 10s) never fire a note into unrelated pinned assertions.
-           "TIME_NOTE_MIN_S": "15"}
+           "TIME_NOTE_MIN_S": "15",
+           # Generated scenes must never land in the developer's real cache
+           # (~/.cache/parlor/topics.json) — a suite run would silently
+           # reshape the picker they see next time they open the app.
+           "PARLOR_TOPICS_CACHE": str(
+               tmp_path_factory.mktemp("topics") / "topics.json")}
     env.pop("LLAMA_SERVER_URL", None)
     with open(log_path, "w") as log:
         proc = subprocess.Popen([sys.executable, "-m", "parlor.server"], cwd=ROOT,

@@ -230,16 +230,44 @@
   .viewport-wrap.loading::after { animation-duration: 6s; opacity: 0.2; }
   .viewport-wrap.loading .viewport-glow { animation-duration: 7s; opacity: 0.1; }
 
-  video {
+  /* The assistant's face fills the stage; the glow layers sit above and
+     below it, so the canvas keeps z-index 2 the <video> used to have. */
+  #avatar {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 18px;
+    background: #0a0a10;
+    position: relative;
+    z-index: 2;
+  }
+
+  #avatar[hidden] { display: none; }
+
+  /* The user's own camera, demoted to a corner. Still the frame the model
+     is shown — this is a layout change, not a capability change. */
+  .pip {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    width: 23%;
+    aspect-ratio: 4/3;
+    border-radius: 10px;
+    overflow: hidden;
+    z-index: 4;
+    border: 1px solid rgba(255,255,255,0.10);
+    box-shadow: 0 4px 18px rgba(0,0,0,0.45);
+    transition: opacity 0.3s ease;
+  }
+
+  .pip video {
     display: block;
     width: 100%;
     height: 100%;
     object-fit: cover;
-    border-radius: 18px;
+    border-radius: 10px;
     background: #0a0a10;
     transform: scaleX(-1);
-    position: relative;
-    z-index: 2;
   }
 
   /* ── Waveform canvas ── */
@@ -345,6 +373,130 @@
   }
 
   .mode-stop:hover { background: rgba(129,140,248,0.15); }
+
+  /* The active practice scene — same markup as .mode-chip, different hue
+     so the two never read as the same kind of state. */
+  .mode-chip.topic {
+    background: var(--c-listen-dim);
+    color: var(--c-listen);
+  }
+
+  .mode-chip.topic .mode-stop {
+    border-color: rgba(74,222,128,0.25);
+    color: var(--c-listen);
+  }
+
+  .mode-chip.topic .mode-stop:hover { background: rgba(74,222,128,0.15); }
+
+  /* ── Practice-scene picker ── */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(5,5,9,0.82);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+  }
+
+  .overlay[hidden] { display: none; }
+
+  .overlay-panel {
+    width: 100%;
+    max-width: 720px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .overlay-panel h2 {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--c-text-bright);
+    letter-spacing: -0.01em;
+  }
+
+  .level-row, .chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .level-row { margin-bottom: 2px; }
+
+  .topic-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 10px;
+    max-height: 46vh;
+    overflow-y: auto;
+    padding: 2px;
+  }
+
+  .topic-card {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 12px 14px;
+    text-align: left;
+    font-family: var(--font-body);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 12px;
+    background: var(--c-surface);
+    color: var(--c-text);
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .topic-card:hover {
+    background: var(--c-surface-hover);
+    border-color: rgba(74,222,128,0.25);
+  }
+
+  .topic-card .title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--c-text-bright);
+  }
+
+  .topic-card .scene {
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--c-text-dim);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .topic-card.remembered {
+    border-color: rgba(74,222,128,0.35);
+    background: var(--c-listen-dim);
+  }
+
+  .topic-card.generated .title::after {
+    content: 'new';
+    margin-left: 6px;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--c-process);
+  }
+
+  .overlay-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .overlay-actions .ctrl-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
 
   /* A background research task in flight (delegation) */
   .delegation-chip {

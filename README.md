@@ -39,6 +39,8 @@ FastAPI server
 Browser (playback + transcript)
 ```
 
+- **Practice scenes.** Pick a scene — ordering coffee, a job interview, a gate change, seeing a doctor — and Parlor role-plays it, speaking the first line itself so a session never starts with a live mic and nothing to say. 24 scenes across eight categories ship with it; "More scenes" invents more with the same local model (grammar-forced, like the action head) and caches them to disk. An English-coach layer grades its own language to your level and works corrections into its replies as plain statements rather than naming the mistake — one question per turn, so it reads as a conversation, not an interview.
+- **A face that talks.** The assistant is rendered in the browser and lip-synced from the TTS audio already playing — the audio graph *is* the clock, so the mouth cannot drift, and the server adds nothing. Load any [VRM](https://vrm.dev/) character (VRoid Studio exports them free) or use the built-in 2D face, which has no dependencies at all. `AVATAR_BACKEND=none` gives you the old layout back. The backend sits behind a five-method seam, so a photoreal talking head rendered on a GPU box elsewhere on the LAN can drop in without touching the turn loop.
 - **Background research** (optional). "Find the best pizza in Rome right now" hands the task to a frontier model on any OpenAI-compatible endpoint (OpenRouter + web search by default) while the conversation continues; the answer is spoken when it arrives. Off unless `REASONER_API_KEY` is set — without it Parlor stays fully on-device.
 - **Hands-free turn-taking.** Browser-side [Silero VAD](https://github.com/ricky0123/vad) with a ~200ms silence cutoff — no push-to-talk. Pipecat's [smart-turn-v3](https://huggingface.co/pipecat-ai/smart-turn-v3) then judges whether you actually finished your thought: mid-thought pauses are held silently until you continue, or answered once you stay quiet.
 - **Everything streams.** The reply opens with a transcript of what was heard (on screen immediately — committing to it first measurably improves accuracy), then is spoken sentence-by-sentence while still generating. Your camera frame and speech are pushed through llama.cpp's prompt cache while you're still talking, so even long questions start answering almost instantly.
@@ -134,9 +136,12 @@ src/parlor/
 ├── actions.py             # Action decider (grammar-forced JSON: timers, modes, research)
 ├── reasoner.py            # Background research delegation (OpenAI-compatible)
 ├── modes.py               # Session modes (conversation, translate, listen)
+├── topics.py              # Practice scenes: seed catalogue + on-demand generation
+├── coach.py               # English levels (how a reply is worded, not what it is)
 ├── turn_detector.py       # smart-turn-v3 end-of-turn classifier
 ├── tts.py                 # Platform-aware TTS (MLX on Mac, ONNX on Linux)
-└── web/                   # Frontend (markup, styles, app logic: VAD, camera, playback)
+└── web/                   # Frontend (VAD, camera, playback, scene picker)
+    └── static/avatar.js   # The talking face (VRM or 2D), lip-synced from playback
 tests/                     # End-to-end test suite (uv run pytest)
 benchmarks/
 ├── bench.py               # End-to-end latency benchmark

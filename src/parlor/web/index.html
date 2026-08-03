@@ -8,6 +8,17 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
+<!-- three has shipped ESM-only since r160, so an import map is the
+     no-build path. Versions are pinned in server.py (THREE_VERSION /
+     THREE_VRM_VERSION) so a CDN bump is a one-line diff. Only the VRM
+     backend imports these — the 2D fallback needs nothing. -->
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@{{three}}/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@{{three}}/examples/jsm/",
+    "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@{{three_vrm}}/lib/three-vrm.module.min.js"
+}}
+</script>
 </head>
 <body>
 
@@ -21,10 +32,12 @@
 </header>
 
 <div class="portal-stack">
-  <!-- Webcam viewport with glow layers -->
+  <!-- The stage, with its glow layers: the assistant's face is the primary
+       visual; the user's own camera (still what the model sees) is a PiP. -->
   <div id="viewportWrap" class="viewport-wrap loading">
     <div class="viewport-glow"></div>
-    <video id="video" autoplay muted playsinline></video>
+    <canvas id="avatar"></canvas>
+    <div class="pip"><video id="video" autoplay muted playsinline></video></div>
   </div>
 
   <!-- Audio waveform visualizer -->
@@ -38,6 +51,10 @@
   <!-- Controls -->
   <div class="controls">
     <button id="cameraToggle" class="ctrl-btn active">Camera On</button>
+    <div id="topicChip" class="mode-chip topic" hidden>
+      <span id="topicLabel"></span>
+      <button id="topicChange" class="mode-stop">change</button>
+    </div>
     <div id="modeChip" class="mode-chip" hidden>
       <span id="modeLabel">Translating → English</span>
       <button id="modeStop" class="mode-stop">stop</button>
@@ -53,8 +70,28 @@
   </div>
 </div>
 
+<!-- The practice-scene picker. Shown before the session starts listening:
+     a learner staring at a live mic with nothing to say is the problem
+     this whole overlay exists to solve. -->
+<div id="topicOverlay" class="overlay" hidden>
+  <div class="overlay-panel">
+    <h2 id="overlayTitle">What do you want to practise?</h2>
+    <div id="levelRow" class="level-row"></div>
+    <div id="categoryRow" class="chip-row"></div>
+    <div id="topicGrid" class="topic-grid"></div>
+    <div class="overlay-actions">
+      <button type="button" id="topicMore" class="ctrl-btn">More scenes</button>
+      <button type="button" id="topicFree" class="ctrl-btn">Just chat</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.29/dist/bundle.min.js"></script>
 <script src="/static/app.js"></script>
+<!-- Module scripts are deferred, so this runs after app.js and
+     window.setAvatarBackend is guaranteed to exist. -->
+<script type="module" src="/static/avatar.js"
+        data-backend="{{avatar_backend}}" data-vrm-url="{{avatar_vrm}}"></script>
 </body>
 </html>

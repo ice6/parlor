@@ -37,6 +37,19 @@ def wer(ref: str, hyp: str) -> float:
     return round(d[-1] / len(r), 3)
 
 
+def assert_spoken_prose(text: str) -> None:
+    """Replies are spoken aloud: no leaked tags, no markdown, sane length.
+    Lives here rather than in one test file because four suites assert it
+    and three copies would drift."""
+    assert text.strip(), "empty response"
+    assert "###" not in text and "TRANSCRIPT" not in text
+    assert "**" not in text and not re.search(r"^\s*[-*•]\s", text, re.M)
+    # Stage directions read aloud as punctuation soup ("asterisk wipes the
+    # counter asterisk") — the scene prompt bans them, this catches a lapse.
+    assert not re.search(r"\*[^*]+\*", text), f"stage direction: {text!r}"
+    assert len(re.findall(r"[.!?]", text)) <= 8, f"too long for speech: {text!r}"
+
+
 def silence_wav_b64(seconds: float = 0.05) -> str:
     """A too-short/no-speech WAV, like a mic glitch produces."""
     buf = io.BytesIO()

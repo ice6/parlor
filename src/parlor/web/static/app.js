@@ -16,6 +16,7 @@ let ignoreIncomingAudio = false;
 let streamSampleRate = 24000;
 let streamNextTime = 0;         // When to schedule next chunk
 let streamSources = [];         // Active AudioBufferSourceNodes
+let streamChunkIndex = 0;       // Chunk counter for this reply, for the avatar
 
 // Per-state [glow, glow-dim]. Resolved values, not nested var(): setState
 // writes them into CSS custom properties and the waveform paints with them.
@@ -28,6 +29,7 @@ const STATE_COLORS = {
 
 // ── Waveform Visualizer ──
 let analyser, micSource;
+let ttsAnalyser;  // TTS playback only — see ensureAudioCtx for why it's separate
 const BAR_COUNT = 40;
 const BAR_GAP = 3;
 let waveformRAF;
@@ -155,6 +157,8 @@ function setState(newState) {
       }
     }, 30000);
   }
+
+  avatar.state(newState);
 }
 
 // announce=false when the mic may be live (barge-in): 'ready' tells the
@@ -193,6 +197,9 @@ function connect() {
     delegationChips.clear();
     clearTimerChips();  // timers died with it too
     setSessionMode('conversation');  // a reconnect starts a fresh session
+    // activeTopic is deliberately NOT cleared, unlike the session mode
+    // above: the scene is re-applied (silently) once session_ready lands,
+    // so a dropped socket never costs the user their scene.
     clearFlushTimer();
     setStatus('disconnected', 'Disconnected');
     setTimeout(connect, 2000);
@@ -251,6 +258,51 @@ function connect() {
       }
       const meta = messagesDiv.querySelector('.msg.assistant:last-child .meta');
       if (meta) meta.textContent += ` · tts ${msg.tts_time}s`;
+    } else if (msg.type === 'session_ready') {
+      topicCatalogue = msg.topics || [];
+      topicCategories = msg.categories || {};
+      coachLevels = msg.levels || [];
+      activeLevel = msg.level;
+      // The server starts every session at COACH_LEVEL; a returning
+      // learner meant the level they picked last time, not the default.
+      const rememberedLevel = localStorage.getItem('parlor.level');
+      if (rememberedLevel !== null && rememberedLevel !== (activeLevel || '')) {
+        wsSend({ type: 'set_level', level: rememberedLevel });
+      }
+      if (topicChosen && activeTopic) {
+        // A reconnect: restore the scene, but SILENTLY. The socket
+        // reconnects every 2s on a blip, and re-greeting each time would
+        // be maddening.
+        expectOpening = false;
+        wsSend({ type: 'set_topic', id: activeTopic.id, speak_opening: false });
+      } else {
+        activeCategory = null;
+        openPicker();
+      }
+    } else if (msg.type === 'topic_changed') {
+      activeTopic = msg.topic;
+      activeLevel = msg.level;
+      topicChosen = true;
+      closePicker();
+      setTopicChip(activeTopic);
+      // The opening line follows immediately as a proactive turn — hand it
+      // the floor exactly the way a delegation delivery or a timer ring
+      // does, so turn_final's proactive branch works unchanged. On the
+      // silent reconnect path no turn is coming, so go straight to
+      // listening: parking in 'processing' would sit there until the
+      // 30s watchdog noticed.
+      currentAssistantEl = null;
+      if (!expectOpening) goListening();
+      else if (state !== 'speaking') goProcessing();
+      expectOpening = true;
+    } else if (msg.type === 'level_changed') {
+      activeLevel = msg.level;
+      localStorage.setItem('parlor.level', msg.level || '');
+      if (!$('topicOverlay').hidden) renderLevels();
+    } else if (msg.type === 'topics_generated') {
+      topicCatalogue = topicCatalogue.concat(msg.topics || []);
+      if (!$('topicOverlay').hidden) renderTopics();
+      $('topicMore').textContent = 'More scenes';
     } else if (msg.type === 'mode_changed') {
       setSessionMode(msg.mode);
     } else if (msg.type === 'delegation_started') {
@@ -319,6 +371,94 @@ const MODE_LABELS = { translate: 'Translating → English', listen: 'Just listen
 function setSessionMode(mode) {
   $('modeChip').hidden = mode === 'conversation';
   $('modeLabel').textContent = MODE_LABELS[mode] || mode;
+}
+
+// ── Practice scene (server-driven, like the session mode) ──
+// The picker gates the session: until a scene is chosen the client stays
+// in 'loading', which the existing state machine already reads as "don't
+// listen" (ws.onopen respects it, handleSpeechEnd bails on it). That is
+// deliberately reusing the state machine instead of adding a second gate.
+let topicCatalogue = [], topicCategories = {}, coachLevels = [];
+let activeCategory = null, activeTopic = null, activeLevel = null;
+// Survives ws reconnects, not page loads: a dropped socket must restore
+// the scene silently, a fresh page must show the menu again.
+let topicChosen = false;
+let expectOpening = true;  // false only on the silent reconnect restore
+
+function openPicker() {
+  $('overlayTitle').textContent = activeTopic
+    ? 'Start a new scene' : 'What do you want to practise?';
+  $('topicOverlay').hidden = false;
+  renderLevels();
+  renderCategories();
+  renderTopics();
+}
+
+function closePicker() { $('topicOverlay').hidden = true; }
+
+function renderLevels() {
+  const row = $('levelRow');
+  row.innerHTML = '';
+  for (const l of [...coachLevels, { name: '', label: 'no coaching' }]) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ctrl-btn' + ((activeLevel || '') === l.name ? ' active' : '');
+    b.textContent = l.label;
+    b.onclick = () => { wsSend({ type: 'set_level', level: l.name }); };
+    row.appendChild(b);
+  }
+}
+
+function renderCategories() {
+  const row = $('categoryRow');
+  row.innerHTML = '';
+  for (const [name, label] of [['', 'All'], ...Object.entries(topicCategories)]) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ctrl-btn' + ((activeCategory || '') === name ? ' active' : '');
+    b.textContent = label;
+    b.onclick = () => { activeCategory = name || null; renderCategories(); renderTopics(); };
+    row.appendChild(b);
+  }
+}
+
+function renderTopics() {
+  const grid = $('topicGrid');
+  grid.innerHTML = '';
+  // Last session's scene floats to the top — the commonest thing a
+  // learner wants is another go at the one they were just doing. It is
+  // only pre-selected, never auto-started: seeing the menu is part of
+  // deciding to practise.
+  const last = localStorage.getItem('parlor.topic');
+  const shown = topicCatalogue
+    .filter(t => !activeCategory || t.category === activeCategory)
+    .sort((a, b) => (b.id === last) - (a.id === last));
+  for (const t of shown) {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'topic-card' + (t.generated ? ' generated' : '')
+                   + (t.id === last ? ' remembered' : '');
+    card.innerHTML = '<span class="title"></span><span class="scene"></span>';
+    card.querySelector('.title').textContent = t.title;
+    card.querySelector('.scene').textContent = t.scene;
+    card.onclick = () => pickTopic(t.id);
+    grid.appendChild(card);
+  }
+  // Generation only makes sense before a conversation exists — the server
+  // refuses it afterwards (it would evict the prompt cache), so don't
+  // offer a button that does nothing.
+  $('topicMore').disabled = !activeCategory || topicChosen;
+}
+
+function pickTopic(id) {
+  localStorage.setItem('parlor.topic', id);
+  closePicker();
+  wsSend({ type: 'set_topic', id });
+}
+
+function setTopicChip(topic) {
+  $('topicChip').hidden = !topic;
+  if (topic) $('topicLabel').textContent = topic.title;
 }
 
 // ── Delegation chips: a background research task in flight, shown until
@@ -678,6 +818,7 @@ function stopPlayback() {
   }
   streamSources = [];
   streamNextTime = 0;
+  avatar.stop();
 }
 
 // TTS plays straight to the WebAudio destination. We tried routing it
@@ -694,14 +835,73 @@ function ensureAudioCtx() {
     analyser = audioCtx.createAnalyser();
     analyser.fftSize = 256;
     analyser.smoothingTimeConstant = 0.75;
+    // A SECOND analyser, wired to TTS playback ONLY — never to the mic.
+    // The shared one above carries whichever signal the current state
+    // routes into it (mic while listening, TTS while speaking), which is
+    // right for a decorative waveform and catastrophic for a mouth: the
+    // avatar would lip-sync the USER back at them. Sharper, too — 512 bins
+    // resolve the F1/F2 split the viseme mapping keys on, and 0.2
+    // smoothing keeps the mouth inside the ~50ms window where sync still
+    // reads as sync (0.75 is ~200ms of visible lag).
+    ttsAnalyser = audioCtx.createAnalyser();
+    ttsAnalyser.fftSize = 1024;
+    ttsAnalyser.smoothingTimeConstant = 0.2;
+    ttsAnalyser.minDecibels = -70;
+    ttsAnalyser.maxDecibels = -20;
+    if (avatarBackend) safeAvatar(() => avatarBackend.init(avatarContext()));
   }
 }
+
+// ── Avatar backend seam ──
+// The avatar is a plug, never a participant: app.js calls exactly these
+// methods and ignores what they return, so a remote talking-head service
+// (a GPU box on the LAN rendering a real face) can replace the in-browser
+// renderer without a line changing here. Same spirit as modes.py — the
+// thing that varies is data behind one interface.
+//
+// The two backends use opposite halves of it, which is why it has both:
+// a local renderer reads ttsAnalyser every frame and is therefore
+// sync-exact by construction; a remote one ignores the analyser entirely
+// and lives off onAudioChunk, whose startAt is the authoritative
+// AudioContext playback time (NOT a wall clock).
+//
+//   init({canvas, audioCtx, ttsAnalyser})  once, when the context exists
+//   setState(state)                        loading|listening|processing|speaking
+//   onAudioChunk({index, startAt, duration, sampleRate, samples})
+//   stop()                                 barge-in, or playback finished
+//   dispose()                              backend swapped out
+//
+// A throwing backend must never take the conversation down with it, hence
+// safeAvatar around every call.
+let avatarBackend = null;
+
+function avatarContext() {
+  return { canvas: $('avatar'), audioCtx, ttsAnalyser };
+}
+
+function safeAvatar(fn) {
+  try { fn(); } catch (e) { console.warn('avatar:', e); }
+}
+
+window.setAvatarBackend = backend => {
+  if (avatarBackend) safeAvatar(() => avatarBackend.dispose?.());
+  avatarBackend = backend;
+  if (audioCtx) safeAvatar(() => backend.init(avatarContext()));
+  safeAvatar(() => backend.setState(state));
+};
+
+const avatar = {
+  state: s => avatarBackend && safeAvatar(() => avatarBackend.setState(s)),
+  chunk: info => avatarBackend && safeAvatar(() => avatarBackend.onAudioChunk(info)),
+  stop: () => avatarBackend && safeAvatar(() => avatarBackend.stop()),
+};
 
 function startStreamPlayback() {
   stopPlayback();
   ensureAudioCtx();
   if (audioCtx.state === 'suspended') audioCtx.resume();
   streamNextTime = audioCtx.currentTime + 0.05; // Small initial buffer
+  streamChunkIndex = 0;
   speakingStartedAt = Date.now();
   setState('speaking');
 }
@@ -724,6 +924,7 @@ function queueAudioChunk(base64Pcm) {
   source.buffer = audioBuffer;
   source.connect(audioCtx.destination);
   source.connect(analyser);
+  source.connect(ttsAnalyser);  // the avatar's signal — TTS and nothing else
 
   // Schedule gapless playback
   const startAt = Math.max(streamNextTime, audioCtx.currentTime);
@@ -731,11 +932,24 @@ function queueAudioChunk(base64Pcm) {
   streamNextTime = startAt + audioBuffer.duration;
 
   streamSources.push(source);
+  // startAt is the authoritative mapping from this PCM to the playback
+  // clock, and it only exists here — a remote avatar backend has no other
+  // way to know when these samples are actually heard.
+  avatar.chunk({
+    index: streamChunkIndex++,
+    startAt,
+    duration: audioBuffer.duration,
+    sampleRate: streamSampleRate,
+    samples: float32,
+  });
 
   source.onended = () => {
     const idx = streamSources.indexOf(source);
     if (idx !== -1) streamSources.splice(idx, 1);
-    if (streamSources.length === 0 && state === 'speaking') goListening();
+    if (streamSources.length === 0 && state === 'speaking') {
+      avatar.stop();  // the reply ended on its own — close the mouth
+      goListening();
+    }
   };
 }
 
@@ -753,11 +967,36 @@ $('modeStop').addEventListener('click', () => {
   wsSend({ type: 'set_mode', mode: 'conversation' });
 });
 
+$('topicChange').addEventListener('click', () => {
+  // A scene change resets the conversation, so stop whatever is playing
+  // first — otherwise set_topic queues behind a reply the user is done
+  // with and the reset lands a sentence late. NOT triggerBargeIn(): that
+  // is the mic path (echo grace, utterance capture, ignoreIncomingAudio),
+  // and a stuck discard flag here would swallow the new scene's opening
+  // line. goListening() announces the floor is free, which clears the
+  // interrupt server-side.
+  if (state === 'speaking') {
+    stopPlayback();
+    wsSend({ type: 'interrupt' });
+    goListening();
+  }
+  openPicker();
+});
+
+$('topicFree').addEventListener('click', () => pickTopic('freeform'));
+
+$('topicMore').addEventListener('click', () => {
+  if (!activeCategory) return;
+  $('topicMore').textContent = 'Thinking…';
+  $('topicMore').disabled = true;
+  wsSend({ type: 'generate_topics', category: activeCategory, n: 3 });
+});
+
 cameraToggle.addEventListener('click', () => {
   cameraEnabled = !cameraEnabled;
   cameraToggle.classList.toggle('active', cameraEnabled);
   cameraToggle.textContent = cameraEnabled ? 'Camera On' : 'Camera Off';
-  video.style.opacity = cameraEnabled ? 1 : 0.3;
+  document.querySelector('.pip').style.opacity = cameraEnabled ? 1 : 0.3;
 });
 
 // ── Init ──
@@ -810,10 +1049,13 @@ async function init() {
   // Also try immediately (may work if page had prior interaction)
   ensureAudioCtx();
 
-  setState('listening');
+  // Stay in 'loading' until a scene is picked: that state already means
+  // "don't listen" everywhere it matters (ws.onopen, handleSpeechEnd), so
+  // the picker gates the session without a second gate to keep in sync.
+  if (topicChosen) setState('listening');
   drawWaveform();
 
-  console.log('VAD initialized and listening');
+  console.log('VAD initialized');
 }
 
 init();

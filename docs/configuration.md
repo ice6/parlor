@@ -54,6 +54,36 @@ at a provider, use that provider's model id (e.g. `gpt-5.6-luna`, not
 | ----------------- | ------- | ----------- |
 | `TIME_NOTE_MIN_S` | `120`   | Seconds of quiet before the next turn tells the model how long the silence was |
 
+## Practice scenes
+
+Pick a scene and Parlor role-plays it, speaking the first line itself. The
+catalogue ships with 24 hand-written scenes across eight categories; the
+"More scenes" button invents more with the same local model and caches them
+to disk — the only file Parlor ever writes. A corrupt or unreadable cache
+is ignored rather than fatal, so deleting it is always safe.
+
+| Variable              | Default                        | Description |
+| --------------------- | ------------------------------ | ----------- |
+| `COACH_LEVEL`         | `intermediate`                 | Starting English level: `beginner`, `intermediate`, `advanced`, or `off` for no coaching |
+| `PARLOR_TOPICS_CACHE` | `~/.cache/parlor/topics.json`  | Where generated scenes are kept (honours `XDG_CACHE_HOME`); capped at 60, oldest dropped |
+
+## Avatar
+
+The face is rendered in the browser and lip-synced from the TTS audio
+already playing, so it adds nothing to Parlor's latency — but it does share
+the machine's GPU with llama.cpp and Kokoro. If that shows up in your
+time-to-first-audio, `AVATAR_BACKEND=canvas` costs almost nothing to draw.
+
+No model is downloaded for you: export any VRM 0.x or 1.0 character (VRoid
+Studio is free and exports VRM 1.0) and drop it at
+`src/parlor/web/static/avatar/model.vrm`. Without one — or if the CDN is
+unreachable — the 2D face takes over automatically.
+
+| Variable          | Default                     | Description |
+| ----------------- | --------------------------- | ----------- |
+| `AVATAR_BACKEND`  | `vrm`                       | `vrm` (3D character), `canvas` (drawn 2D face, no dependencies), `none` (no avatar) |
+| `AVATAR_VRM_URL`  | `/static/avatar/model.vrm`  | Where to load the VRM from; any URL works |
+
 ## TTS
 
 | Variable      | Default | Description |

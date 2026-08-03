@@ -5,12 +5,11 @@ Not automatable here (needs a browser + live mic): echo /
 AEC behavior, VAD feel and barge-in prosody, non-English speech.
 """
 
-import re
 import time
 
 import fixtures as fx
 import pytest
-from util import audio, wer
+from util import assert_spoken_prose, audio, wer
 
 # Transcripts of clean synthesized speech should be near-verbatim; degraded
 # audio gets more slack.
@@ -20,14 +19,6 @@ WER_DEGRADED = 0.25
 
 def ref_text(name: str) -> str:
     return fx.FIXTURES[name][0]
-
-
-def assert_spoken_prose(text: str) -> None:
-    """Replies are spoken aloud: no leaked tags, no markdown, sane length."""
-    assert text.strip(), "empty response"
-    assert "###" not in text and "TRANSCRIPT" not in text
-    assert "**" not in text and not re.search(r"^\s*[-*•]\s", text, re.M)
-    assert len(re.findall(r"[.!?]", text)) <= 8, f"too long for speech: {text!r}"
 
 
 # ── A. Turn-taking ────────────────────────────────────────────────────────

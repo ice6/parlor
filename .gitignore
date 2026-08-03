@@ -12,6 +12,7 @@ wheels/
 *.onnx
 *.bin
 *.litertlm
+*.vrm
 
 # Generated benchmark artifacts
 benchmarks/fixtures/
