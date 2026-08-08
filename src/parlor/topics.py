@@ -45,9 +45,11 @@ CATEGORIES = {
     "health": "Healthcare",
     "shopping": "Shopping",
     "tech": "Tech",
+    "kids": "Kids",
 }
 
-# Three per category. Every scene sentence starts "The user is…" and says
+# Three per category (kids has more — one audience, more everyday moments
+# worth covering). Every scene sentence starts "The user is…" and says
 # both where they are and what they WANT — a scene with no want gives the
 # learner nothing to push against, and the conversation dies in two turns.
 SEED = [
@@ -186,6 +188,55 @@ SEED = [
           "a salesperson who would rather sell them an upgrade",
           "a customer who wants to pay less, not more",
           "Hi! Looking for a new handset today?"),
+
+    # ── Kids ── (short, everyday moments for a young learner — simple
+    # words, warm and encouraging adults, nothing that needs small talk
+    # about jobs or money)
+    Topic("lunch_line", "kids", "School lunch",
+          "The user is in the school cafeteria line and can't decide what to get for lunch.",
+          "the lunch lady serving today's choices",
+          "a student deciding what to eat",
+          "Hey there — chicken or pasta today, or are we doing both?"),
+    Topic("new_friend", "kids", "Making a new friend",
+          "The user is standing alone at recess and sees a new kid who just moved to town.",
+          "a new kid at school who looks a little nervous",
+          "a student saying hello for the first time",
+          "Hi, I'm new here — is it okay if I stand with you?"),
+    Topic("show_and_tell", "kids", "Show and tell",
+          "The user brought something special from home to share with the class today.",
+          "the teacher running show and tell",
+          "a student about to show something they love",
+          "Okay, who wants to go first and tell us what they brought?"),
+    Topic("borrow_toy", "kids", "Borrowing a toy",
+          "The user really wants a turn with a toy their friend brought to the playground.",
+          "a friend playing with a toy the user wants to try",
+          "someone hoping to take a turn",
+          "You want a turn? Ask nicely and maybe I'll let you."),
+    Topic("birthday_plan", "kids", "Planning a birthday party",
+          "The user is turning ten soon and is telling a friend what they want for their party.",
+          "a friend who is excited to help plan",
+          "someone planning their own birthday party",
+          "Okay, your birthday is coming up — what kind of party are we talking about?"),
+    Topic("pet_store", "kids", "Picking a pet",
+          "The user is at a pet store trying to convince their parent to get a hamster.",
+          "a pet store worker who loves hamsters",
+          "a kid hoping to bring home a new pet",
+          "Thinking about a hamster? Want to hold one and see how you like it?"),
+    Topic("library_help", "kids", "Finding a book",
+          "The user is at the library looking for a book about dinosaurs for a school project.",
+          "the librarian who helps kids find books",
+          "a student working on a dinosaur project",
+          "Dinosaurs, huh? Do you want the ones with pictures, or the ones with all the facts?"),
+    Topic("grandma_call", "kids", "Calling grandma",
+          "The user is on a video call with their grandmother, telling her about their day at school.",
+          "their grandmother, happy to hear from them",
+          "a kid sharing what happened at school today",
+          "There's my favorite person! Tell me — what was the best part of your day?"),
+    Topic("lost_jacket", "kids", "A lost jacket",
+          "The user can't find their jacket after recess and is checking the school lost and found.",
+          "the school office worker who keeps the lost and found box",
+          "a student trying to find their missing jacket",
+          "Lost something? Let's look in the box — what does it look like?"),
 ]
 
 # Not a scene: the picker's escape hatch. It carries no SCENARIO_NOTE at
