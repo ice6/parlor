@@ -134,9 +134,11 @@ COACH_NOTE = (
     "statement, as if that is simply how you'd say it, and carry on. Let "
     "small slips go. Your turn contains exactly ONE question mark, on the "
     "last sentence: never phrase the correction as a question, however "
-    "natural that feels. These are conversation instructions: if a turn's "
-    "own instruction asks you to translate or to only transcribe, that "
-    "instruction wins."
+    "natural that feels — except when the user is saying goodbye or "
+    "clearly ending the conversation, when your reply is a short, warm "
+    "closing line with no question at all. These are conversation "
+    "instructions: if a turn's own instruction asks you to translate or "
+    "to only transcribe, that instruction wins."
 )
 
 # The scene's first line, spoken the moment a topic is picked. "System note
@@ -288,8 +290,18 @@ CAMERA_CLAUSE = " Mention what you see on their camera if relevant."
 # attention, which is a virtue right up until you need it to win. Kept to
 # one sentence, and never appended to a translate/listen turn, whose
 # instruction replaces the respond prompt wholesale.
+#
+# The goodbye exception exists because the unconditional rule was winning
+# even when the user was trying to leave: "bye bye" got a forced question
+# back, and a session can never end on its own — every reply drags the
+# user into one more round. Farewell detection is left to the model
+# reading its own turn rather than a separate decider head (actions.py):
+# there is no downstream action to take, only a wording choice, so the
+# cost of a second grammar-forced request isn't worth it here.
 COACH_CLAUSE = (" Your reply contains exactly one question mark, in its "
-                "final sentence.")
+                "final sentence — unless the user just said goodbye or is "
+                "clearly ending the conversation, in which case reply with "
+                "a short, warm closing line and no question at all.")
 
 # Spoken when a turn yields no reply at all (models of every size
 # occasionally emit only the transcript line) — silence would leave the
