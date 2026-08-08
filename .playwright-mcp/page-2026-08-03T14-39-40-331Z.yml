@@ -1,9 +1,0 @@
-- generic [active] [ref=e1]:
-  - banner [ref=e2]:
-    - heading "Parlor" [level=1] [ref=e5]
-    - generic [ref=e6]: Gemma 4 E4B
-    - generic [ref=e7]: Disconnected
-  - generic [ref=e16]:
-    - button "Camera On" [ref=e17] [cursor=pointer]
-    - generic [ref=e18]: Loading...
-    - generic [ref=e21]: On-device

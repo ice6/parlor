@@ -22,6 +22,9 @@ benchmarks/results/
 .DS_Store
 default.profraw
 
+# Browser-automation scratch output
+.playwright-mcp/
+
 # IDE
 .idea/
 .vscode/

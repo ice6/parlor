@@ -232,7 +232,7 @@ class Backend {
 // is missing, and a deliberate choice for anyone who'd rather not pay a
 // 3D renderer's share of a machine that is already running an LLM and a
 // TTS model on the same GPU.
-class CanvasFaceBackend extends Backend {
+export class CanvasFaceBackend extends Backend {
   init(ctx) {
     this.g = this.canvas.getContext('2d');
     super.init(ctx);
@@ -265,36 +265,77 @@ class CanvasFaceBackend extends Backend {
     g.strokeStyle = glow;
     g.fillStyle = glow;
     g.lineWidth = Math.max(1.5, r * 0.035);
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
 
-    g.globalAlpha = 0.22;                       // head
+    // Head: a faint fill under the outline. A bare wireframe reads as a
+    // diagram of a face rather than a face.
+    g.globalAlpha = 0.07;
     g.beginPath();
     g.ellipse(0, 0, r * 0.86, r, 0, 0, Math.PI * 2);
+    g.fill();
+    g.globalAlpha = 0.24;
     g.stroke();
 
-    g.globalAlpha = 0.9;                        // eyes
-    const eyeY = -r * 0.22, eyeX = r * 0.34;
+    // Eyes, each with a catchlight. The highlight is the single cheapest
+    // thing that makes drawn eyes look alive instead of staring.
+    const eyeY = -r * 0.20, eyeX = r * 0.34;
     const lid = Math.max(0.06, 1 - blink);
     for (const sx of [-1, 1]) {
+      g.globalAlpha = 0.92;
       g.beginPath();
-      g.ellipse(sx * eyeX, eyeY, r * 0.11, r * 0.13 * lid, 0, 0, Math.PI * 2);
+      g.ellipse(sx * eyeX, eyeY, r * 0.115, r * 0.145 * lid, 0, 0, Math.PI * 2);
       g.fill();
+      if (lid > 0.5) {
+        g.globalAlpha = 0.95;
+        g.fillStyle = '#ffffff';
+        g.beginPath();
+        g.ellipse(sx * eyeX + r * 0.04, eyeY - r * 0.05 * lid,
+                  r * 0.035, r * 0.035 * lid, 0, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = glow;
+      }
     }
 
-    g.globalAlpha = 0.75;                       // brows
-    g.beginPath();
+    // Brows: gentle arches, highest in the middle. The first version drew
+    // straight lines whose INNER ends sat lower than the outer ones —
+    // that is the anger vector, and the face read as a scowl.
+    g.globalAlpha = 0.7;
+    g.lineWidth = Math.max(1.5, r * 0.030);
     for (const sx of [-1, 1]) {
-      g.moveTo(sx * (eyeX - r * 0.16), eyeY - r * 0.30);
-      g.lineTo(sx * (eyeX + r * 0.16), eyeY - r * 0.34);
+      g.beginPath();
+      g.moveTo(sx * (eyeX - r * 0.17), eyeY - r * 0.27);
+      g.quadraticCurveTo(sx * eyeX, eyeY - r * 0.40,
+                         sx * (eyeX + r * 0.18), eyeY - r * 0.28);
+      g.stroke();
     }
-    g.stroke();
 
-    // The mouth: height is aperture, width narrows toward front vowels.
+    // The mouth is a SMILE that opens, not an ellipse: its corners always
+    // sit above its centre, so a closed mouth is a curve rather than the
+    // flat bar the first version drew. `open` deepens the lower lip;
+    // `ratio` widens it toward front vowels (ee) and narrows it toward
+    // rounded ones (ou), which is the way real mouths move.
     g.globalAlpha = 0.95;
-    const mh = r * (0.03 + open * 0.34);
-    const mw = r * (0.40 - 0.14 * ratio);
+    const my = r * 0.38;
+    const lift = r * 0.09;                       // how far the corners rise
+    const mh = r * open * 0.34;
+    const mw = r * (0.26 + 0.12 * ratio);
     g.beginPath();
-    g.ellipse(0, r * 0.42, mw, mh, 0, 0, Math.PI * 2);
+    g.moveTo(-mw, my - lift);
+    g.quadraticCurveTo(0, my + lift * 1.9 + mh * 1.7, mw, my - lift);
+    g.quadraticCurveTo(0, my + lift * 0.15 + mh * 0.25, -mw, my - lift);
     g.fill();
+
+    // Cheeks: two soft dots that appear only on a wide smile. Small
+    // touch, and the thing that finally reads as warm rather than polite.
+    if (open > 0.25) {
+      g.globalAlpha = 0.10 * Math.min(1, (open - 0.25) * 3);
+      for (const sx of [-1, 1]) {
+        g.beginPath();
+        g.ellipse(sx * r * 0.52, r * 0.26, r * 0.13, r * 0.09, 0, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
 
     g.restore();
   }

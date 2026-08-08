@@ -62,6 +62,8 @@ def load() -> TTSBackend:
             print(f"TTS: mlx-audio (Apple GPU, sample_rate={backend.sample_rate})")
             return backend
         except ImportError:
+            import traceback
+            traceback.print_exc()
             print("TTS: mlx-audio not installed, falling back to kokoro-onnx")
 
     backend = ONNXBackend()

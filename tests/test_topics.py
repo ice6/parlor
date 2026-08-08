@@ -7,9 +7,6 @@ that the session really refuses to listen until a scene is chosen.
 
 from util import Session, assert_spoken_prose, audio
 
-CATEGORIES = {"business", "dining", "sports", "travel",
-              "daily", "health", "shopping", "tech"}
-
 
 def ready(session) -> dict:
     """The catalogue frame the server pushes on connect."""
@@ -28,7 +25,13 @@ def pick(session, topic_id: str, speak_opening: bool = True) -> dict | None:
 
 def test_session_ready_carries_the_catalogue(session):
     msg = ready(session)
-    assert {t["category"] for t in msg["topics"]} == CATEGORIES
+    # Self-consistency, not a pinned list: adding a category to topics.py
+    # is an ordinary edit and must not need a test change. What matters is
+    # that every card belongs to a category the picker was told about —
+    # one that isn't leaves cards unreachable behind the filter chips.
+    assert len(msg["categories"]) >= 8
+    assert {t["category"] for t in msg["topics"]} == set(msg["categories"]), \
+        "a card's category is missing from the picker's chip row"
     assert msg["topic"] is None, "a fresh session starts with no scene"
     assert {l["name"] for l in msg["levels"]} == \
         {"beginner", "intermediate", "advanced"}
