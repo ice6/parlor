@@ -14,6 +14,12 @@ import numpy as np
 
 from parlor import llama
 
+try:  # matches server.py's DISCONNECT_ERRORS — see send_json below for why
+    from uvicorn.protocols.utils import ClientDisconnected
+except ImportError:  # pragma: no cover
+    class ClientDisconnected(OSError):
+        pass
+
 # Parsed tolerantly ("### TRANSCRIPT : ..." happens) — but the colon is
 # REQUIRED and only [ \t] may follow: this regex runs against a partially
 # streamed buffer, so an optional colon matches before the ":" token
@@ -107,7 +113,18 @@ def pad_tail_silence(b64: str) -> str:
 # ── websocket protocol ────────────────────────────────────────────────────
 
 async def send_json(ws, payload: dict) -> None:
-    await ws.send_text(json.dumps(payload))
+    try:
+        await ws.send_text(json.dumps(payload))
+    except RuntimeError as e:
+        # Starlette's application_state still reads CONNECTED here, so its
+        # own send() only guards against OSError — but uvicorn has already
+        # torn the socket down on the receive side (the client is gone) and
+        # raises a bare RuntimeError instead, uncaught by that guard.
+        # Re-raise as the class DISCONNECT_ERRORS already expects so the one
+        # real cause — a vanished client — gets one handling path everywhere.
+        if "websocket.close" not in str(e):
+            raise
+        raise ClientDisconnected from e
 
 
 async def release_client(ws) -> None:
